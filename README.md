@@ -1,125 +1,123 @@
-# Deadline Radar
+<img src="./public/logo.svg" width="120" alt="Promise logo" />
 
-Deadline Radar is a Next.js prototype for turning informal work commitments into visible, reviewable deadline risks. It models the moment when someone says “I’ll get this to you by Friday” in Slack or email, scores the chance that the commitment may slip, and gives a human an editable escalation message to approve before delivery.
+# Promise
 
-This repository currently provides a reliable, local demo of that workflow. It is **not yet a connected Slack/email agent**: commitments are seeded in memory and the OpenAI, CopilotKit, and Exa integrations described in the original project brief have not been implemented.
+Promise turns the deadlines people casually promise in Slack and email into tracked, scored, escalating commitments — with a human always in the loop before anything gets sent.
 
-## What works today
+## The problem
 
-- A dark-mode dashboard showing four seeded commitments.
-- Deterministic risk scoring based on deadline proximity, inactivity, and risk-related language.
-- A mock clock: “Simulate 3 days passing” recalculates every risk score.
-- A manually triggered escalation draft for each commitment.
-- Human-in-the-loop review: the draft is editable and can be approved or dismissed.
-- Slack Incoming Webhook delivery when `SLACK_WEBHOOK_URL` is configured.
-- A safe demo fallback that records the approved message in memory when no webhook is configured.
-- Production build and TypeScript validation through `npm run build`.
+Deadlines don't die in project trackers — they die quietly in Slack threads and email chains. Someone says *"I'll get this to you by Friday"* or *"let's push launch a week,"* and unless someone manually logs it, that commitment never becomes a tracked deadline. By the time it's missed, there's no paper trail, just surprise.
 
-## Current architecture
+## What Promise does
 
-```text
-Dashboard (React client)
-  ├─ GET /api/radar ────────────────┐
-  └─ POST /api/radar ───────────────┤
-                                      ▼
-                           In-memory commitment store
-                                      │
-                         Risk scoring + draft template
-                                      │
-                         Slack webhook or demo log
+This is the real, verified loop, end to end:
+
+1. **Extraction** — seed Slack + email messages (and anything manually ingested) are sent to `gpt-4o` in a single structured-output call. It pulls out `{owner, description, dueDate, confidence, sourceExcerpt}` for every genuine commitment, resolves relative dates ("by Friday") against each message's own timestamp, discards non-commitments outright, and also flags when a later message indicates an earlier commitment was already finished.
+2. **Risk scoring** — a deterministic 0–100 score per commitment, combining deadline proximity, days of inactivity, and urgency language in the source text. No LLM call needed for this step.
+3. **Auto-flagging** — on every clock advance or recompute, any commitment that crosses a risk score of 70 is automatically flagged **and** drafted — no manual click required to notice risk.
+4. **Escalation drafting** — a second `gpt-4o` call writes a short, specific escalation message referencing the actual due date and the actual reason it's at risk (not a generic reminder).
+5. **Human-in-the-loop approval** — the draft surfaces as an editable card inside the CopilotKit sidebar. A human can edit the text, approve it, or dismiss the flag. Nothing sends without that click.
+6. **Slack delivery** — on approval, the message goes out through a Slack Incoming Webhook. If no webhook is configured, it's safely logged in an in-app demo log instead — the flow never breaks either way.
+7. **Manual ingestion** — a message that isn't in the seed data can be added live, either by telling the sidebar ("ingest this Slack message: ...") or through a small form on the dashboard. It runs through the same extraction step and, if it's a real commitment, joins the tracked list immediately.
+8. **Conversational grounding** — the sidebar can also just answer questions like "what's my riskiest commitment right now?", grounded in the actual live state, not a canned response.
+
+**Exa enrichment is not built.** `lib/exa.ts` doesn't exist, there's no Exa dependency in `package.json`, and `EXA_API_KEY` is accepted but unused — it was part of the original plan, not something currently wired in.
+
+## Why this fits "Agents leaving the chatbox"
+
+The CopilotKit dashboard and sidebar are the actual product surface, not a chat window bolted onto an existing app — the risk radar, the escalation card, and the approval step all live there natively. Slack is real delivery, not a mock: an approved message is a genuine `fetch` to an Incoming Webhook, landing in an actual channel. The environment (the dashboard people would actually watch, and the channel people would actually read) is where the agent acts, not a decorative wrapper around an LLM call.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Seed Slack + Email JSON] --> B[Extraction — GPT-4o structured output]
+    M[Manual ingestMessage<br/>sidebar chat or dashboard form] --> B
+    B --> C[(In-memory Commitment Store)]
+    C --> D[Risk Scoring]
+    D --> E[CopilotKit Dashboard<br/>Risk Radar + Commitment List]
+    D -- score crosses 70 --> F[Auto-draft escalation — GPT-4o]
+    F --> N[Nudge queue<br/>one pending approval at a time]
+    N --> G[HITL Approval Card<br/>CopilotKit Action]
+    G -- approve --> H[Slack Webhook Delivery]
+    G -- dismiss --> C
+    H --> C
+    E <--> I[CopilotKit Sidebar — grounded Q&A]
 ```
 
-The central files are:
+The nudge queue exists because CopilotKit's underlying protocol won't accept a new chat message while a previous tool call (an open approval card) hasn't been resolved — so when more than one commitment flags at once, only one approval card is nudged into the sidebar at a time, and the rest wait their turn. See **Known limitations** below for the one edge case in this queue that isn't fully fixed yet.
 
-- `app/page.tsx` — dashboard and client-side API calls.
-- `app/api/radar/route.ts` — radar actions and Slack delivery orchestration.
-- `lib/store.ts` — seeded state, mock clock, and in-memory delivery log.
-- `lib/scoring.ts` — deterministic 0–100 risk model.
-- `lib/drafts.ts` — current template-based escalation wording.
-- `lib/slack.ts` — webhook sender with demo-mode fallback.
-- `components/` — Risk Radar, commitment list, and editable escalation card.
+> **Note on scope:** the codebase also contains a live Slack Events API endpoint (`app/api/slack/events/route.ts`) that receives real Slack messages and writes them to `data/seed-slack.json` on disk. This isn't reflected in the diagram above because it conflicts with [ARCHITECTURE.md](./ARCHITECTURE.md)'s own locked decision against live Slack/email OAuth ingestion and against writing to the seed files — flagging it here for the team rather than presenting it as an intended part of the design.
 
-## Run locally
+## Tech stack
 
-### Requirements
+Only dependencies actually present in `package.json`:
 
-- Node.js 18.17 or newer
-- npm
+| Layer | Choice |
+|---|---|
+| Framework | Next.js 14 (App Router) + TypeScript |
+| Agent UI | **CopilotKit** (`@copilotkit/react-core`, `@copilotkit/react-ui`, `@copilotkit/runtime`) — sidebar, dashboard actions, generative UI, HITL approval |
+| LLM | **OpenAI** (`openai`) — `gpt-4o` for extraction and escalation drafting |
+| Validation | `zod` — structured-output schema for extraction |
+| Styling | Tailwind CSS, `next-themes` (light/dark toggle), `lucide-react` (icons) |
+| Data layer | In-memory store (`lib/store.ts`) — no database |
+| Delivery | Slack Incoming Webhook (plain `fetch`, no SDK) |
 
-### Install and start
+**Sponsor integrations actually wired in:** CopilotKit and OpenAI. Exa is not implemented (see above). No Auth0, Trigger.dev, or OpenRouter integration exists in this codebase.
+
+## Quickstart
 
 ```bash
+git clone <this-repo>
+cd Promise-1.0
 npm install
+cp .env.example .env.local
+```
+
+Fill in `.env.local`:
+
+| Variable | Required | If unset |
+|---|---|---|
+| `OPENAI_API_KEY` | Yes | Extraction and drafting hard-fail; the app falls back to a small set of hardcoded demo commitments and template escalation text instead of crashing. |
+| `EXA_API_KEY` | No | No effect — nothing reads it yet. |
+| `SLACK_WEBHOOK_URL` | No | Approved escalations are logged in-app in demo mode instead of being sent — nothing crashes. |
+
+```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). (The CopilotKit provider currently points at a hardcoded `http://localhost:3000/api/copilotkit` — see Known limitations if you run on a different port.)
 
-### Environment variables
+## Demo walkthrough
 
-Create `.env.local` only if you want real Slack delivery:
+1. Open the dashboard — commitments extracted live from the seed data, all calm.
+2. Click **Simulate 3 days passing**. Watch at least one commitment's risk cross into the red zone.
+3. An escalation card appears in the sidebar automatically — no manual "draft" click needed. The text is a real `gpt-4o` response, not a template.
+4. Review (edit if you like) and click **Approve & send**.
+5. Check your Slack channel for the message, or the in-app demo log if `SLACK_WEBHOOK_URL` isn't set.
+6. Ask the sidebar something like *"what's my riskiest commitment right now?"* and get an answer grounded in the live state.
+7. Optionally, try the **Manually ingest a message** form on the dashboard (or ask the sidebar to ingest a message you paste in) and watch a brand-new commitment appear.
 
-```bash
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
-```
+## Known limitations
 
-When the variable is not set, approval remains safe: the app records the delivery in its in-memory demo log rather than sending a message.
+Be honest with yourself running this: it's a hackathon build, not production software.
 
-The original concept also anticipates `OPENAI_API_KEY` and `EXA_API_KEY`, but neither is used by the current code.
+- **State is in-memory only.** The whole commitment list resets on server restart — and Next.js's dev server can silently recompile and reset it mid-session after an idle gap between routes. Do a demo or review as one continuous session; don't leave long pauses between actions.
+- **A known ordering bug in the approval queue.** When two commitments flag at the same time, approving the *first* queued escalation card can throw a server-side `MissingToolResultsError` before the second card's nudge is sent, because the code releases the next queued nudge slightly before the approval's own result is confirmed back to CopilotKit. It's understood and logged (see [FAILURES.md](./FAILURES.md)'s 14:41 entry) but not yet fixed.
+- **The CopilotKit runtime URL is hardcoded** to `http://localhost:3000/api/copilotkit` in `app/layout.tsx`. Running on a different port will break the sidebar.
+- **No request validation or auth** on `/api/radar` — it's a local demo endpoint, not a hardened API.
+- **Exa enrichment isn't built**, despite being part of the original plan.
 
-### Validate a production build
+## Project docs
 
-```bash
-npm run build
-```
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — locked decisions, non-negotiables, what to cut if time runs short
+- [DATA_SPEC.md](./DATA_SPEC.md) — canonical data model, seed shape, risk scoring formula
+- [BUILD_PLAN.md](./BUILD_PLAN.md) — phased build checklist against the hackathon time budget
+- [FAILURES.md](./FAILURES.md) — real issues hit during the build and how they were fixed
+- [TESTING.md](./TESTING.md) — manual smoke-test checklist
+- [context.md](./context.md) — original project spec
 
-## API actions
+## Team
 
-`/api/radar` accepts these actions via `POST`:
-
-| Action | Purpose |
-| --- | --- |
-| `advance` | Move the mock clock forward; defaults to three days. |
-| `recompute` | Recalculate all commitment risk scores. |
-| `draft` | Mark a specified commitment as flagged and create a template escalation. |
-| `dismiss` | Return a flagged commitment to `tracked`. |
-| `approve` | Send the edited or generated draft, then mark the commitment as `escalated`. |
-
-The API is designed for the local demo. It does not currently validate request payloads, authenticate callers, persist data, or enforce a full state-transition policy.
-
-## Risk scoring
-
-Each commitment receives a score between 0 and 100:
-
-- **Deadline proximity:** 5–52 points.
-- **Inactivity:** up to 30 points, at 5 points per quiet day.
-- **Risk wording:** 13 points if the source contains terms such as “blocked,” “delay,” or “urgent.”
-
-Scores are labeled **On track** (<25), **Watch** (25–44), **At risk** (45–69), or **Critical** (70+).
-
-## Deliberate demo constraints
-
-- State is held in process memory and resets when the server restarts or scales.
-- The initial commitments are hard-coded in `lib/store.ts`; there are no Slack/email fixture files yet.
-- “Simulate time passing” changes the score only. It does **not** automatically create an escalation card when a threshold is crossed.
-- Drafts are currently deterministic templates, not LLM-generated.
-- The UI is custom React; CopilotKit packages are installed but not wired into the app.
-
-## Implementation roadmap
-
-1. Add deterministic Slack and email fixtures plus an ingestion contract.
-2. Define a persistent commitment lifecycle and automatically flag threshold crossings, while preventing duplicate escalations.
-3. Add OpenAI structured extraction and context-aware drafting with deterministic fallbacks for stage demos.
-4. Implement the CopilotKit runtime, grounded dashboard state, sidebar questions, and approval actions.
-5. Add schema validation, tests, delivery status visibility, and secret/configuration checks.
-6. Add an optional Exa verification/enrichment pass before escalation.
-
-The priorities intentionally favor a dependable end-to-end demo before expanding integrations.
-
-## Repository hygiene
-
-`.gitignore` excludes dependencies, Next.js output, environment files, logs, coverage, Vercel metadata, and TypeScript build metadata. If `.next/` files have previously been committed, they must be removed from Git’s index separately before the new ignore rule takes effect for them.
-
-## License
-
-No license has been selected yet.
+- Maazin Kazi
+- Mohammad Ahmad
