@@ -38,5 +38,13 @@
     "subject": "Re: Vendor contract redline",
     "timestamp": "2026-08-21T10:20:00Z",
     "body": "No rush — do we even still need the vendor for the Q4 renewal, or did we drop them?"
+  },
+  {
+    "threadId": "t-pricing",
+    "from": "jordan.ellis@co.com",
+    "to": "priya@co.com",
+    "subject": "Re: Acme pricing",
+    "timestamp": "2026-09-12T10:00:00Z",
+    "body": "The revised pricing page has been sent to Acme, finished."
   }
 ]

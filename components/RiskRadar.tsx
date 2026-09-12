@@ -28,7 +28,7 @@ export function RiskRadar({ commitments }: { commitments: Commitment[] }) {
             {sorted.map(c => (
               <tr key={c.id}>
                 <td className="whitespace-nowrap px-5 py-3 font-medium text-slate-900 dark:text-slate-200">{c.owner}</td>
-                <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-slate-400">{riskLabel(c.riskScore)}</td>
+                <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-slate-400">{riskLabel(c.riskScore, c.status)}</td>
                 <td className="whitespace-nowrap px-5 py-3 text-right font-mono font-medium" style={{ color: color(c.riskScore) }}>
                   {c.riskScore.toString().padStart(2, '0')}
                 </td>

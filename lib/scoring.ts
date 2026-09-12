@@ -1,6 +1,7 @@
 import { Commitment } from "./types";
 
 export function scoreRisk(commitment: Commitment, now = new Date()): number {
+  if (commitment.status === "resolved") return 0;
   const due = new Date(`${commitment.dueDate}T17:00:00`);
   const daysLeft = Math.ceil((due.getTime() - now.getTime()) / 86_400_000);
   const quietDays = Math.max(0, Math.floor((now.getTime() - new Date(commitment.lastActivityAt).getTime()) / 86_400_000));
@@ -9,4 +10,7 @@ export function scoreRisk(commitment: Commitment, now = new Date()): number {
   return Math.max(0, Math.min(100, Math.round(deadlineRisk + Math.min(30, quietDays * 5) + urgency)));
 }
 
-export const riskLabel = (score: number) => score >= 70 ? "Critical" : score >= 45 ? "At risk" : score >= 25 ? "Watch" : "On track";
+export const riskLabel = (score: number, status?: string) => {
+  if (status === "resolved") return "Resolved";
+  return score >= 70 ? "Critical" : score >= 45 ? "At risk" : score >= 25 ? "Watch" : "On track";
+};

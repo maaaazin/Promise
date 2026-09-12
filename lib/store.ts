@@ -2,8 +2,8 @@ import { scoreRisk } from "./scoring";
 import { extractCommitments, SeedMessage } from "./extraction";
 import { buildEscalationDraft } from "./drafts";
 import { Commitment, RadarState } from "./types";
-import seedSlack from "@/data/seed-slack.json";
-import seedEmail from "@/data/seed-email.json";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 // Used only if live extraction fails (no API key, API error, or zero commitments survive
 // the confidence floor) — keeps the demo running even when OpenAI is unreachable.
@@ -18,6 +18,11 @@ type SlackSeedEntry = { channel: string; author: string; timestamp: string; text
 type EmailSeedEntry = { threadId: string; from: string; to: string; subject: string; timestamp: string; body: string };
 
 function loadSeedMessages(): SeedMessage[] {
+  const seedSlackRaw = readFileSync(join(process.cwd(), "data", "seed-slack.json"), "utf8");
+  const seedEmailRaw = readFileSync(join(process.cwd(), "data", "seed-email.json"), "utf8");
+  const seedSlack = JSON.parse(seedSlackRaw);
+  const seedEmail = JSON.parse(seedEmailRaw);
+
   const slack = (seedSlack as SlackSeedEntry[]).map((m, i) => ({ id: `slack-${i}`, sourceType: "slack" as const, author: m.author, timestamp: m.timestamp, text: m.text }));
   const email = (seedEmail as EmailSeedEntry[]).map((m, i) => ({ id: `email-${i}`, sourceType: "email" as const, author: m.from, timestamp: m.timestamp, text: m.body }));
   return [...slack, ...email];
@@ -42,7 +47,7 @@ async function loadInitialCommitments(): Promise<Omit<Commitment, "riskScore">[]
         description: item.description,
         dueDate: item.dueDate,
         lastActivityAt: source?.timestamp ?? new Date().toISOString(),
-        status: "tracked" as const,
+        status: item.isResolved ? "resolved" : "tracked",
       };
     });
     console.log(`[store] extraction: live — ${commitments.length} commitment(s) extracted from ${messages.length} seed messages`);
@@ -159,7 +164,7 @@ export async function ingestMessage(input: IngestInput): Promise<RadarState> {
     description: item.description,
     dueDate: item.dueDate,
     lastActivityAt: timestamp,
-    status: "tracked",
+    status: item.isResolved ? "resolved" : "tracked",
     riskScore: 0,
   };
   commitment.riskScore = scoreRisk(commitment, now);

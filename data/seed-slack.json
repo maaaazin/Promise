@@ -40,5 +40,17 @@
     "author": "jordan",
     "timestamp": "2026-09-11T12:20:00Z",
     "text": "sounds good, thanks for the update"
+  },
+  {
+    "channel": "#eng-launch",
+    "author": "sam",
+    "timestamp": "2026-09-12T09:00:00Z",
+    "text": "I'm completely done with the API, it's deployed."
+  },
+  {
+    "channel": "C12345",
+    "author": "U99999",
+    "timestamp": "2024-09-11T12:34:58.000Z",
+    "text": "I will fix the bug by tomorrow morning."
   }
 ]
