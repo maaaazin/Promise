@@ -4,5 +4,5 @@
 
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #0E1116; color: #edf0f8; }
+body { margin: 0; }
 button, input, textarea { font: inherit; }
