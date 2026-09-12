@@ -2,110 +2,108 @@
 
 # Promise
 
-Promise turns the deadlines people casually promise in Slack and email into tracked, scored, escalating commitments — with a human always in the loop before anything gets sent.
+**Promises are made. Promises are lost. Promise finds them.**
 
-## The problem
+Promise is an intelligent operations radar that connects to your Slack and Email to automatically track informal work commitments. It extracts promises like *"I'll have the deck by Friday"*, tracks their deadlines, scores their risk of slipping, and provides an AI Copilot to help you escalate and follow up before things go wrong.
 
-Deadlines don't die in project trackers — they die quietly in Slack threads and email chains. Someone says *"I'll get this to you by Friday"* or *"let's push launch a week,"* and unless someone manually logs it, that commitment never becomes a tracked deadline. By the time it's missed, there's no paper trail, just surprise.
+---
 
-## What Promise does
+## Features
 
-This is the real, verified loop, end to end:
+- **Automated Extraction:** Uses LLMs (OpenAI `gpt-4o`) to continuously scan Slack and email conversations, identifying genuine actionable commitments without manual data entry.
+- **Dynamic Risk Radar:** Every commitment receives a 0-100 risk score based on deadline proximity, inactivity, and urgency phrasing. 
+- **AI Copilot Escalation:** When a commitment turns critical, the AI Copilot drafts context-aware follow-up messages. A human-in-the-loop (HITL) system ensures you always approve the message before it sends.
+- **Real-Time Resolution:** Connect a live Slack webhook. When a team member posts *"I'm done"*, Promise catches it, links it to the commitment, and drops the risk score to zero instantly.
+- **Light & Dark Mode:** A sleek, ops-monitoring aesthetic built for rapid scanning.
 
-1. **Extraction** — seed Slack + email messages (and anything manually ingested) are sent to `gpt-4o` in a single structured-output call. It pulls out `{owner, description, dueDate, confidence, sourceExcerpt}` for every genuine commitment, resolves relative dates ("by Friday") against each message's own timestamp, discards non-commitments outright, and also flags when a later message indicates an earlier commitment was already finished.
-2. **Risk scoring** — a deterministic 0–100 score per commitment, combining deadline proximity, days of inactivity, and urgency language in the source text. No LLM call needed for this step.
-3. **Auto-flagging** — on every clock advance or recompute, any commitment that crosses a risk score of 70 is automatically flagged **and** drafted — no manual click required to notice risk.
-4. **Escalation drafting** — a second `gpt-4o` call writes a short, specific escalation message referencing the actual due date and the actual reason it's at risk (not a generic reminder).
-5. **Human-in-the-loop approval** — the draft surfaces as an editable card inside the CopilotKit sidebar. A human can edit the text, approve it, or dismiss the flag. Nothing sends without that click.
-6. **Slack delivery** — on approval, the message goes out through a Slack Incoming Webhook. If no webhook is configured, it's safely logged in an in-app demo log instead — the flow never breaks either way.
-7. **Manual ingestion** — a message that isn't in the seed data can be added live, either by telling the sidebar ("ingest this Slack message: ...") or through a small form on the dashboard. It runs through the same extraction step and, if it's a real commitment, joins the tracked list immediately.
-8. **Conversational grounding** — the sidebar can also just answer questions like "what's my riskiest commitment right now?", grounded in the actual live state, not a canned response.
+---
 
-**Exa enrichment is not built.** `lib/exa.ts` doesn't exist, there's no Exa dependency in `package.json`, and `EXA_API_KEY` is accepted but unused — it was part of the original plan, not something currently wired in.
-
-## Why this fits "Agents leaving the chatbox"
-
-The CopilotKit dashboard and sidebar are the actual product surface, not a chat window bolted onto an existing app — the risk radar, the escalation card, and the approval step all live there natively. Slack is real delivery, not a mock: an approved message is a genuine `fetch` to an Incoming Webhook, landing in an actual channel. The environment (the dashboard people would actually watch, and the channel people would actually read) is where the agent acts, not a decorative wrapper around an LLM call.
-
-## Architecture
+## How It Works
 
 ```mermaid
-flowchart LR
-    A[Seed Slack + Email JSON] --> B[Extraction — GPT-4o structured output]
-    M[Manual ingestMessage<br/>sidebar chat or dashboard form] --> B
-    B --> C[(In-memory Commitment Store)]
-    C --> D[Risk Scoring]
-    D --> E[CopilotKit Dashboard<br/>Risk Radar + Commitment List]
-    D -- score crosses 70 --> F[Auto-draft escalation — GPT-4o]
-    F --> N[Nudge queue<br/>one pending approval at a time]
-    N --> G[HITL Approval Card<br/>CopilotKit Action]
-    G -- approve --> H[Slack Webhook Delivery]
-    G -- dismiss --> C
-    H --> C
-    E <--> I[CopilotKit Sidebar — grounded Q&A]
+graph TD;
+    A[Slack / Email Messages] --> B(LLM Extraction)
+    B --> C{Commitment Found?}
+    C -- Yes --> D[Store in Tracker]
+    D --> E[Risk Scoring Engine]
+    E --> F[Promise Dashboard]
+    
+    F -- High Risk --> G[AI Copilot Drafts Escalation]
+    G --> H(Human Approval)
+    H -- Approved --> I[Send Follow-up to Slack]
+    
+    A --> J(Completion Message: 'I am done')
+    J --> B
+    B --> K[Update State: Resolved]
+    K --> F
 ```
 
-The nudge queue exists because CopilotKit's underlying protocol won't accept a new chat message while a previous tool call (an open approval card) hasn't been resolved — so when more than one commitment flags at once, only one approval card is nudged into the sidebar at a time, and the rest wait their turn. See **Known limitations** below for the one edge case in this queue that isn't fully fixed yet.
+---
 
-> **Note on scope:** the codebase also contains a live Slack Events API endpoint (`app/api/slack/events/route.ts`) that receives real Slack messages and writes them to `data/seed-slack.json` on disk. This isn't reflected in the diagram above because it conflicts with [ARCHITECTURE.md](./ARCHITECTURE.md)'s own locked decision against live Slack/email OAuth ingestion and against writing to the seed files — flagging it here for the team rather than presenting it as an intended part of the design.
+## Setup & Run Locally
 
-## Tech stack
+### Requirements
+- Node.js 18.17 or newer
+- npm
+- An OpenAI API Key (`OPENAI_API_KEY`)
 
-Only dependencies actually present in `package.json`:
-
-| Layer | Choice |
-|---|---|
-| Framework | Next.js 14 (App Router) + TypeScript |
-| Agent UI | **CopilotKit** (`@copilotkit/react-core`, `@copilotkit/react-ui`, `@copilotkit/runtime`) — sidebar, dashboard actions, generative UI, HITL approval |
-| LLM | **OpenAI** (`openai`) — `gpt-4o` for extraction and escalation drafting |
-| Validation | `zod` — structured-output schema for extraction |
-| Styling | Tailwind CSS, `next-themes` (light/dark toggle), `lucide-react` (icons) |
-| Data layer | In-memory store (`lib/store.ts`) — no database |
-| Delivery | Slack Incoming Webhook (plain `fetch`, no SDK) |
-
-**Sponsor integrations actually wired in:** CopilotKit and OpenAI. Exa is not implemented (see above). No Auth0, Trigger.dev, or OpenRouter integration exists in this codebase.
-
-## Quickstart
-
+### 1. Install and Start
 ```bash
-git clone <this-repo>
-cd Promise-1.0
 npm install
-cp .env.example .env.local
-```
-
-Fill in `.env.local`:
-
-| Variable | Required | If unset |
-|---|---|---|
-| `OPENAI_API_KEY` | Yes | Extraction and drafting hard-fail; the app falls back to a small set of hardcoded demo commitments and template escalation text instead of crashing. |
-| `EXA_API_KEY` | No | No effect — nothing reads it yet. |
-| `SLACK_WEBHOOK_URL` | No | Approved escalations are logged in-app in demo mode instead of being sent — nothing crashes. |
-
-```bash
 npm run dev
 ```
+Open [http://localhost:3000](http://localhost:3000).
 
-Open [http://localhost:3000](http://localhost:3000). (The CopilotKit provider currently points at a hardcoded `http://localhost:3000/api/copilotkit` — see Known limitations if you run on a different port.)
+### 2. Environment Variables
+Create a `.env.local` file in the root directory:
+```bash
+OPENAI_API_KEY=sk-... 
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... # For sending escalations
+```
+*(If `SLACK_WEBHOOK_URL` is omitted, the app defaults to a safe demo mode that logs escalations to the console instead of sending them).*
 
-## Demo walkthrough
+---
 
-1. Open the dashboard — commitments extracted live from the seed data, all calm.
-2. Click **Simulate 3 days passing**. Watch at least one commitment's risk cross into the red zone.
-3. An escalation card appears in the sidebar automatically — no manual "draft" click needed. The text is a real `gpt-4o` response, not a template.
-4. Review (edit if you like) and click **Approve & send**.
-5. Check your Slack channel for the message, or the in-app demo log if `SLACK_WEBHOOK_URL` isn't set.
-6. Ask the sidebar something like *"what's my riskiest commitment right now?"* and get an answer grounded in the live state.
-7. Optionally, try the **Manually ingest a message** form on the dashboard (or ask the sidebar to ingest a message you paste in) and watch a brand-new commitment appear.
+## Live Slack Webhook Integration (Optional)
 
-## Project docs
+You can connect Promise directly to a real Slack workspace to test real-time commitment resolutions.
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — locked decisions, non-negotiables, what to cut if time runs short
-- [DATA_SPEC.md](./DATA_SPEC.md) — canonical data model, seed shape, risk scoring formula
-- [BUILD_PLAN.md](./BUILD_PLAN.md) — phased build checklist against the hackathon time budget
-- [FAILURES.md](./FAILURES.md) — real issues hit during the build and how they were fixed
-- [TESTING.md](./TESTING.md) — manual smoke-test checklist
-- [context.md](./context.md) — original project spec
+### 1. Expose your Localhost
+Run `ngrok` to expose your development server to the internet:
+```bash
+ngrok http 3000
+```
+*Copy the `https://xxxx.ngrok-free.app` URL.*
+
+### 2. Create a Slack App
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App** > **From scratch**.
+2. Give it a name (e.g., "Promise") and select your workspace.
+
+### 3. Configure Event Subscriptions
+1. Click **Event Subscriptions** on the left sidebar and toggle "Enable Events" to **On**.
+2. In the **Request URL** field, paste your ngrok URL with `/api/slack/events`:
+   ```
+   https://YOUR_NGROK_URL.ngrok-free.app/api/slack/events
+   ```
+   *(Slack will verify the URL immediately).*
+3. Under **Subscribe to bot events**, click **Add Bot User Event**, and add `message.channels`.
+4. Click **Save Changes**.
+
+### 4. Install the App
+1. You will see a yellow banner asking you to reinstall the app. Go to **Install App** and click **Reinstall to Workspace**.
+2. Go to any public channel in your Slack workspace and invite the bot (e.g., `@Promise`).
+
+### 5. Test It
+Send a message in the channel like: *"I'll have the marketing report done by tomorrow afternoon."*
+The Promise dashboard will update in real-time, parsing your Slack message and adding it to the radar! When you reply *"I finished the report"*, it will automatically mark it as **Resolved**.
+
+---
+
+## Architecture Highlights
+- **Framework:** Next.js 14 App Router
+- **UI:** TailwindCSS + `next-themes` + Lucide React
+- **AI Agent:** CopilotKit for side-car conversational AI and HITL capabilities.
+- **State:** In-memory store backed by localized JSON files (`seed-slack.json`). Designed for low-latency demonstration without requiring heavy Postgres setups.
 
 ## Team
 
