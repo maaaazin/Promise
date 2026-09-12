@@ -37,7 +37,7 @@ export function CommitmentList({ commitments, onDraft }: { commitments: Commitme
                   <span className="font-mono font-medium" style={{ color: color(c.riskScore) }}>
                     {c.riskScore.toString().padStart(2, '0')}
                   </span>
-                  <span className="ml-2 text-xs text-slate-500">{riskLabel(c.riskScore)}</span>
+                  <span className="ml-2 text-xs text-slate-500">{riskLabel(c.riskScore, c.status)}</span>
                 </td>
                 <td className="whitespace-nowrap px-5 py-3 text-right">
                   {c.status === "flagged" ? (

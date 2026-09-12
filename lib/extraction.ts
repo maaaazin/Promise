@@ -17,6 +17,7 @@ export type ExtractedCommitment = {
   dueDate: string;
   confidence: number;
   sourceExcerpt: string;
+  isResolved?: boolean;
 };
 
 // Below this, treat the extraction as too vague or ambiguous to act on and discard it
@@ -30,6 +31,7 @@ const ExtractionItem = z.object({
   dueDate: z.string().describe("Absolute due date in YYYY-MM-DD format."),
   confidence: z.number().min(0).max(1).describe("0-1 confidence this is a genuine, actionable commitment with a resolvable due date."),
   sourceExcerpt: z.string().describe("The exact quoted phrase from the message containing the commitment."),
+  isResolved: z.boolean().optional().describe("True if a later message in the provided batch clearly indicates that this previously stated commitment has been finished or completed."),
 });
 
 const ExtractionResult = z.object({ commitments: z.array(ExtractionItem) });
@@ -41,6 +43,8 @@ A commitment is a specific person promising to deliver something by some point i
 Every input message has its own "timestamp". For any relative date phrasing in that message ("by Friday", "end of next week", "next Wednesday"), resolve it into an absolute date in YYYY-MM-DD format using THAT MESSAGE'S OWN timestamp as "today" — never the current real date, and never another message's timestamp.
 
 If a message contains a real commitment but you cannot confidently resolve a specific due date, still return it with your best-guess date and a confidence of 0.4 or lower.
+
+If a later message in the provided batch clearly indicates that a previously stated commitment has been finished or completed (e.g. "I'm done with X", "The document is finished"), set isResolved to true for that commitment.
 
 Score confidence 0-1: how sure you are this is a genuine, actionable commitment with a resolvable due date. Give a low score (well under 0.5) to anything vague, hedged, or without a real deliverable.
 
