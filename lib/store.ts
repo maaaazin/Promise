@@ -131,3 +131,39 @@ export async function runExtraction(): Promise<RadarState> {
   s.commitments = commitments.map((c) => ({ ...c, riskScore: scoreRisk(c as Commitment, now) }));
   return snapshot();
 }
+
+export type IngestInput = { sourceType: "slack" | "email"; rawText: string; author?: string; timestamp?: string };
+
+// Runs the same single-message extraction the seed pipeline uses against one manually-supplied
+// message (e.g. pasted into the sidebar chat or typed into the dashboard's ingest form) and, if
+// it clears the confidence floor, adds a new commitment straight into the live store so it
+// participates in future recompute()/advanceClock() auto-flagging like any other commitment.
+export async function ingestMessage(input: IngestInput): Promise<RadarState> {
+  const s = await getState();
+  const timestamp = input.timestamp ?? s.now;
+  const message: SeedMessage = { id: `ingest-${Date.now()}`, sourceType: input.sourceType, author: input.author ?? "unknown", timestamp, text: input.rawText };
+
+  const extracted = await extractCommitments([message]);
+  if (extracted.length === 0) {
+    console.log(`[ingest] no commitment found in message`);
+    return snapshot();
+  }
+
+  const item = extracted[0];
+  const now = new Date(s.now);
+  const commitment: Commitment = {
+    id: `c-${slugify(item.owner)}-ingest-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    sourceType: input.sourceType,
+    sourceExcerpt: item.sourceExcerpt,
+    owner: item.owner,
+    description: item.description,
+    dueDate: item.dueDate,
+    lastActivityAt: timestamp,
+    status: "tracked",
+    riskScore: 0,
+  };
+  commitment.riskScore = scoreRisk(commitment, now);
+  s.commitments.push(commitment);
+  console.log(`[ingest] extracted commitment from ${input.sourceType} message`);
+  return snapshot();
+}

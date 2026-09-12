@@ -19,6 +19,9 @@ export default function Dashboard() {
   const [state, setState] = useState<RadarState>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [ingestText, setIngestText] = useState("");
+  const [ingestSource, setIngestSource] = useState<"slack" | "email">("slack");
+  const [ingestResult, setIngestResult] = useState("");
   const { appendMessage } = useCopilotChat();
 
   useEffect(() => {
@@ -59,9 +62,9 @@ export default function Dashboard() {
       const before = prev?.commitments.find((x) => x.id === c.id);
       return before?.status !== "flagged";
     });
-    
+
     if (newlyFlagged.length === 0) return;
-    
+
     // Only nudge the riskiest one to avoid overwhelming the Copilot chat with multiple simultaneous approvals
     const top = newlyFlagged.sort((a, b) => b.riskScore - a.riskScore)[0];
     void nudgeApproval(top.id, top.owner, top.escalationDraft!);
@@ -105,6 +108,36 @@ export default function Dashboard() {
     }
   }
 
+  async function handleIngest(input: { sourceType: "slack" | "email"; rawText: string; author?: string; timestamp?: string }): Promise<string> {
+    setError("");
+    try {
+      const prev = state;
+      const next = await callRadar({ action: "ingest", ...input });
+      setState(next);
+      const prevIds = new Set(prev?.commitments.map((c) => c.id));
+      const added = next.commitments.find((c) => !prevIds.has(c.id));
+      return added
+        ? `Ingested a new tracked commitment: ${added.owner} — "${added.description}" due ${added.dueDate} (risk ${added.riskScore}).`
+        : "No commitment detected in that message — nothing added.";
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Something went wrong";
+      setError(message);
+      throw e;
+    }
+  }
+
+  async function handleIngestSubmit() {
+    if (!ingestText.trim()) return;
+    setIngestResult("");
+    try {
+      const result = await handleIngest({ sourceType: ingestSource, rawText: ingestText });
+      setIngestResult(result);
+      setIngestText("");
+    } catch {
+      // error state already set by handleIngest
+    }
+  }
+
   useCopilotAction(
     {
       name: "extractCommitments",
@@ -133,6 +166,23 @@ export default function Dashboard() {
         const top = [...next.commitments].sort((a, b) => b.riskScore - a.riskScore)[0];
         return top ? `Recomputed. Highest risk right now: ${top.owner} — "${top.description}" at ${top.riskScore}.` : "Recomputed. No commitments tracked.";
       },
+    },
+    [state]
+  );
+
+  useCopilotAction(
+    {
+      name: "ingestMessage",
+      description:
+        "Ingest a single raw Slack or email message that isn't part of the seed data (e.g. one pasted into this chat) and extract a commitment from it if one exists, adding it to the live tracked commitments so it's included in future risk recomputation. If no genuine commitment is found, nothing is added.",
+      parameters: [
+        { name: "sourceType", type: "string", description: "Where the message came from: \"slack\" or \"email\".", required: true },
+        { name: "rawText", type: "string", description: "The raw message text to extract a commitment from.", required: true },
+        { name: "author", type: "string", description: "Display name of the message's author, if known.", required: false },
+        { name: "timestamp", type: "string", description: "ISO timestamp the message was sent, if known. Defaults to the current mock clock time.", required: false },
+      ],
+      handler: async ({ sourceType, rawText, author, timestamp }) =>
+        handleIngest({ sourceType: sourceType === "email" ? "email" : "slack", rawText, author, timestamp }),
     },
     [state]
   );
@@ -223,6 +273,36 @@ export default function Dashboard() {
         <RiskRadar commitments={state.commitments} />
         <div className="mt-6">
           <CommitmentList commitments={state.commitments} onDraft={handleDraft} />
+        </div>
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <p className="text-xs font-bold uppercase tracking-[.15em] text-cyan-300">Manually ingest a message</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Non-chat fallback: paste a raw Slack or email message here to extract and track a commitment from it, without going through the sidebar.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <select
+              value={ingestSource}
+              onChange={(e) => setIngestSource(e.target.value === "email" ? "email" : "slack")}
+              className="rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200 sm:w-32"
+            >
+              <option value="slack">Slack</option>
+              <option value="email">Email</option>
+            </select>
+            <input
+              value={ingestText}
+              onChange={(e) => setIngestText(e.target.value)}
+              placeholder={'e.g. "I\'ll ship the report by Monday"'}
+              className="flex-1 rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500"
+            />
+            <button
+              onClick={handleIngestSubmit}
+              disabled={!ingestText.trim()}
+              className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-slate-950 shadow-lg shadow-white/10 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Ingest
+            </button>
+          </div>
+          {ingestResult && <p className="mt-2 text-xs text-slate-400">{ingestResult}</p>}
         </div>
         <p className="mt-5 text-center text-xs text-slate-500">
           Human approval is required before delivery. Flagged commitments are reviewed and approved from the chat sidebar. Without a Slack webhook, sent messages

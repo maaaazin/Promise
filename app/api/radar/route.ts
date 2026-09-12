@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildEscalationDraft } from "@/lib/drafts";
-import { advanceClock, logDelivery, recompute, runExtraction, snapshot, updateCommitment } from "@/lib/store";
+import { advanceClock, ingestMessage, logDelivery, recompute, runExtraction, snapshot, updateCommitment } from "@/lib/store";
 import { sendToSlack } from "@/lib/slack";
 
 export async function GET() { return NextResponse.json(await snapshot()); }
@@ -11,6 +11,13 @@ export async function POST(request: NextRequest) {
     if (body.action === "advance") return NextResponse.json(await advanceClock(body.days ?? 3));
     if (body.action === "recompute") return NextResponse.json(await recompute());
     if (body.action === "extract") return NextResponse.json(await runExtraction());
+    if (body.action === "ingest") {
+      const sourceType = body.sourceType === "email" ? "email" : body.sourceType === "slack" ? "slack" : undefined;
+      const rawText = typeof body.rawText === "string" ? body.rawText.trim() : "";
+      if (!sourceType) return NextResponse.json({ error: "sourceType must be \"slack\" or \"email\"" }, { status: 400 });
+      if (!rawText) return NextResponse.json({ error: "rawText is required" }, { status: 400 });
+      return NextResponse.json(await ingestMessage({ sourceType, rawText, author: body.author, timestamp: body.timestamp }));
+    }
     const state = await snapshot(); const commitment = state.commitments.find(c => c.id === body.id);
     if (!commitment) return NextResponse.json({ error: "Commitment not found" }, { status: 404 });
     if (body.action === "draft") return NextResponse.json(await updateCommitment(body.id, { status: "flagged", escalationDraft: await buildEscalationDraft(commitment) }));
