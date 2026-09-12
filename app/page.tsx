@@ -51,6 +51,17 @@ export default function Dashboard() {
     }
   }
 
+  // Auto-triggered flags (threshold crossed during advance/recompute, no manual draft click)
+  // reuse this same nudge — diffed against the state captured just before the call resolved.
+  function nudgeAutoFlagged(prev: RadarState | undefined, next: RadarState) {
+    for (const c of next.commitments) {
+      if (c.status !== "flagged" || !c.escalationDraft) continue;
+      const before = prev?.commitments.find((x) => x.id === c.id);
+      if (before?.status === "flagged") continue;
+      void nudgeApproval(c.id, c.owner, c.escalationDraft);
+    }
+  }
+
   async function handleDraft(commitmentId: string) {
     setError("");
     try {
@@ -80,7 +91,10 @@ export default function Dashboard() {
   async function handleAdvance() {
     setError("");
     try {
-      setState(await callRadar({ action: "advance" }));
+      const prev = state;
+      const next = await callRadar({ action: "advance" });
+      setState(next);
+      nudgeAutoFlagged(prev, next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     }
@@ -107,8 +121,10 @@ export default function Dashboard() {
       description: "Recalculate the risk score for every tracked commitment against the current mock clock time.",
       parameters: [],
       handler: async () => {
+        const prev = state;
         const next = await callRadar({ action: "recompute" });
         setState(next);
+        nudgeAutoFlagged(prev, next);
         const top = [...next.commitments].sort((a, b) => b.riskScore - a.riskScore)[0];
         return top ? `Recomputed. Highest risk right now: ${top.owner} — "${top.description}" at ${top.riskScore}.` : "Recomputed. No commitments tracked.";
       },
