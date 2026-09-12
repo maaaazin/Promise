@@ -6,6 +6,7 @@ import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { RiskRadar } from "@/components/RiskRadar";
 import { CommitmentList } from "@/components/CommitmentList";
 import { EscalationCard } from "@/components/EscalationCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { RadarState } from "@/lib/types";
 
 async function callRadar(body: Record<string, unknown>): Promise<RadarState> {
@@ -41,8 +42,8 @@ export default function Dashboard() {
   useCopilotReadable(
     {
       description:
-        "The live Deadline Radar state: mock current time, and every tracked commitment with its owner, description, due date, riskScore (0-100, higher = more likely to slip), status (tracked/flagged/escalated/resolved), and escalation draft if one exists.",
-      value: state,
+        "The live Promise state: mock current time, and every tracked commitment with its owner, description, due date, riskScore (0-100, higher = more likely to slip), status (tracked/flagged/escalated/resolved), and escalation draft if one exists.",
+      value: state || "Loading...",
     },
     [state]
   );
@@ -274,34 +275,37 @@ export default function Dashboard() {
     [state]
   );
 
-  if (loading) return <main className="grid min-h-screen place-items-center text-slate-300">Calibrating commitment radar…</main>;
-  if (!state) return <main className="grid min-h-screen place-items-center text-rose-300">{error}</main>;
+  if (loading) return <main className="grid min-h-screen place-items-center text-slate-600 dark:text-slate-300">Calibrating commitment radar…</main>;
+  if (!state) return <main className="grid min-h-screen place-items-center text-rose-600 dark:text-rose-300">{error}</main>;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#18244a,_#080b13_55%)] px-5 py-8 sm:px-8">
+    <main className="min-h-screen px-5 py-8 sm:px-8">
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
-              Deadline Radar
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[#3DD6C4]" />
+              Promise
             </div>
             <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
               Commitments don’t disappear.
               <br />
-              <span className="text-slate-400">They surface before they slip.</span>
+              <span className="text-slate-500 dark:text-slate-400">They surface before they slip.</span>
             </h1>
           </div>
-          <div className="flex flex-col items-start gap-2 sm:items-end">
-            <p className="text-xs text-slate-400">
-              Mock time · {new Date(state.now).toLocaleDateString("en-US", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          <div className="flex flex-col items-start gap-3 sm:items-end">
+            <p className="font-mono text-xs text-slate-500 dark:text-slate-400">
+              Mock time · {new Date(state.now).toLocaleDateString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
             </p>
-            <button onClick={handleAdvance} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-white/10 hover:bg-cyan-100">
-              Simulate 3 days passing →
-            </button>
+            <div className="flex gap-2">
+              <ThemeToggle />
+              <button onClick={handleAdvance} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10">
+                Simulate 3 days passing
+              </button>
+            </div>
           </div>
         </header>
-        {error && <p className="mb-4 rounded-lg bg-rose-400/10 p-3 text-sm text-rose-200">{error}</p>}
+        {error && <p className="mb-4 rounded-lg bg-rose-100 p-3 text-sm text-rose-800 dark:bg-rose-400/10 dark:text-rose-200">{error}</p>}
         <RiskRadar commitments={state.commitments} />
         <div className="mt-6">
           <CommitmentList commitments={state.commitments} onDraft={handleDraft} />
@@ -342,7 +346,7 @@ export default function Dashboard() {
         </p>
       </div>
       <CopilotSidebar
-        labels={{ title: "Deadline Radar Agent", initial: "Ask me what's at risk, or approve an escalation that's ready for review." }}
+        labels={{ title: "Promise Agent", initial: "Ask me what's at risk, or approve an escalation that's ready for review." }}
         instructions="You help the user track and act on work commitments extracted from Slack/email. Use the live commitment state you're given to answer grounded questions. Use recomputeRisk, draftEscalation, dismissFlag, and approveEscalation to act on commitments — always call approveEscalation to get human sign-off before anything is treated as sent."
       />
     </main>
