@@ -69,3 +69,24 @@ Root cause: `nudgeAutoFlagged()` in `app/page.tsx` already restricted itself to 
 Fix: Centralized all nudge-sending behind `nudgeApproval()` in `app/page.tsx`, now backed by a `pendingNudgeIdRef` + `nudgeQueueRef` (via `useRef`): a nudge is sent immediately only if none is currently pending; otherwise it's queued. `resolveNudge()` is called from the `approveEscalation` card's `onApprove` and from `handleDismiss` (shared by manual dismiss and the `dismissFlag` action) to clear the pending ref and release the next queued nudge. `nudgeAutoFlagged` now simply queues every newly-flagged commitment (riskiest first) instead of picking only one — the queue guarantees at most one is ever in flight, so none are silently dropped. Chose this (option a from the task) over batching all newly-flagged commitments into one message (option b) because option b alone would not close the actual race: the confirmed root cause is *overlapping separate invocations* of `nudgeApproval`, not a same-call loop, so only a persistent pending/queue gate — not a bigger single message — prevents it regardless of trigger source.
 Verified: (1) wire-protocol reproduction of the raw bug, reconstructing the exact `RUN_ERROR` text from a live run against real flagged commitments; (2) a logic-level simulation of the exact queueing functions (copied verbatim, `appendMessage` mocked) proving that with Maya (73) and Jordan (77) both newly flagged in one call, only one `appendMessage` fires immediately (Jordan, riskier), a duplicate/overlapping nudge for the same pending commitment is suppressed, and Maya's queued nudge fires only after `resolveNudge` runs — both reachable, neither dropped, and the single-commitment case is provably unchanged; (3) wire-protocol confirmation that once a nudge's tool call carries a proper tool-result message, the runtime accepts the next nudge on the same thread with no `RUN_ERROR`, and `gpt-4o` correctly emits a second `approveEscalation` call with Maya's own commitmentId and draft.
 Time lost: ~40 min (tracing the actual current `nudgeAutoFlagged` implementation before trusting the task's stated hypothesis, since the same-call-loop pattern it described had already been removed by an earlier commit; reconstructing the wire-protocol repro to get real proof rather than a plausible-sounding story).
+
+### [14:41] MissingToolResultsError on server when first queued nudge is approved
+Attempted: Full continuous regression run in browser. Advanced clock by 3 days, causing Jordan Ellis (77) and Maya (73) to auto-flag and auto-draft via GPT-4o. First EscalationCard for Jordan Ellis appeared in CopilotSidebar. Clicked "Approve & send".
+Error (paste exact text, don't paraphrase):
+```
+MissingToolResultsError [AI_MissingToolResultsError]: Tool result is missing for tool call call_gNKseZ2YwVYXLgnuXF2XRLOo.
+    at convertToLanguageModelPrompt (webpack-internal:///(rsc)/./node_modules/ai/dist/index.mjs:1604:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async streamStep (webpack-internal:///(rsc)/./node_modules/ai/dist/index.mjs:8037:36)
+    at async fn (webpack-internal:///(rsc)/./node_modules/ai/dist/index.mjs:8555:9)
+    at async eval (webpack-internal:///(rsc)/./node_modules/ai/dist/index.mjs:2567:24) {
+  cause: undefined,
+  toolCallIds: [ 'call_gNKseZ2YwVYXLgnuXF2XRLOo' ],
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_MissingToolResultsError): true
+}
+Agent execution failed: MissingToolResultsError [AI_MissingToolResultsError]: Tool result is missing for tool call call_gNKseZ2YwVYXLgnuXF2XRLOo.
+```
+Root cause: In `app/page.tsx`, the `onApprove` callback for `approveEscalation` executes `resolveNudge(commitment.id)` before `respond?.({ approved: true, deliveredText: text })`. `resolveNudge` immediately calls `sendNextQueuedNudge()`, which runs `appendMessage` for the second queued nudge (Maya) before the first tool call's result has been returned to the CopilotKit runtime via `respond`. The server-side Vercel AI SDK validates that every tool call in the conversation has a corresponding tool result before accepting a new user message; since the second nudge's `appendMessage` arrived at the server while `call_gNKseZ2YwVYXLgnuXF2XRLOo` was still awaiting its result, the runtime threw `AI_MissingToolResultsError`.
+Fix: In `onApprove` (and `onDismiss`), ensure `respond?.(...)` is invoked and completes before `resolveNudge(...)` triggers the next message in the queue. (Not modified in this pass per the "no feature code edits" constraint).
+Time lost: ~15 min.
