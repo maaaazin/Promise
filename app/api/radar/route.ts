@@ -13,10 +13,10 @@ export async function POST(request: NextRequest) {
     if (body.action === "extract") return NextResponse.json(await runExtraction());
     const state = await snapshot(); const commitment = state.commitments.find(c => c.id === body.id);
     if (!commitment) return NextResponse.json({ error: "Commitment not found" }, { status: 404 });
-    if (body.action === "draft") return NextResponse.json(await updateCommitment(body.id, { status: "flagged", escalationDraft: buildEscalationDraft(commitment) }));
+    if (body.action === "draft") return NextResponse.json(await updateCommitment(body.id, { status: "flagged", escalationDraft: await buildEscalationDraft(commitment) }));
     if (body.action === "dismiss") return NextResponse.json(await updateCommitment(body.id, { status: "tracked", escalationDraft: undefined }));
     if (body.action === "approve") {
-      const text = String(body.text || commitment.escalationDraft || buildEscalationDraft(commitment));
+      const text = String(body.text || commitment.escalationDraft || (await buildEscalationDraft(commitment)));
       const delivery = await sendToSlack(text); await updateCommitment(body.id, { status: "escalated", escalationDraft: text }); await logDelivery(body.id, text, delivery.delivered);
       return NextResponse.json(await snapshot());
     }
