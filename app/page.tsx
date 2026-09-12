@@ -1,19 +1,217 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useCopilotAction, useCopilotChat, useCopilotReadable } from "@copilotkit/react-core";
+import { CopilotSidebar } from "@copilotkit/react-ui";
+import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
 import { RiskRadar } from "@/components/RiskRadar";
 import { CommitmentList } from "@/components/CommitmentList";
 import { EscalationCard } from "@/components/EscalationCard";
 import { RadarState } from "@/lib/types";
 
+async function callRadar(body: Record<string, unknown>): Promise<RadarState> {
+  const r = await fetch("/api/radar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const json = await r.json();
+  if (!r.ok) throw new Error(json.error || "Something went wrong");
+  return json as RadarState;
+}
+
 export default function Dashboard() {
- const [state, setState] = useState<RadarState>(); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
- async function api(action: string, id?: string, text?: string) { setError(""); const r = await fetch("/api/radar", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, id, text }) }); const body = await r.json(); if (!r.ok) { setError(body.error || "Something went wrong"); return; } setState(body); }
- useEffect(() => { fetch("/api/radar").then(r => r.json()).then(setState).catch(() => setError("Could not load the radar.")).finally(() => setLoading(false)); }, []);
- if (loading) return <main className="grid min-h-screen place-items-center text-slate-300">Calibrating commitment radar…</main>;
- if (!state) return <main className="grid min-h-screen place-items-center text-rose-300">{error}</main>;
- const flagged = state.commitments.filter(c => c.status === "flagged" && c.escalationDraft);
- return <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#18244a,_#080b13_55%)] px-5 py-8 sm:px-8"><div className="mx-auto max-w-6xl"><header className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-cyan-300"><span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />Deadline Radar</div><h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Commitments don’t disappear.<br/><span className="text-slate-400">They surface before they slip.</span></h1></div><div className="flex flex-col items-start gap-2 sm:items-end"><p className="text-xs text-slate-400">Mock time · {new Date(state.now).toLocaleDateString("en-US", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}</p><button onClick={() => api("advance")} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-white/10 hover:bg-cyan-100">Simulate 3 days passing →</button></div></header>
- {error && <p className="mb-4 rounded-lg bg-rose-400/10 p-3 text-sm text-rose-200">{error}</p>}
- <div className="grid gap-6 lg:grid-cols-[1.05fr_.95fr]"><RiskRadar commitments={state.commitments} /><div className="space-y-4">{flagged.length ? flagged.map(c => <EscalationCard key={c.id} commitment={c} onAction={(a, id, text) => api(a, id, text)} />) : <section className="rounded-3xl border border-dashed border-white/15 bg-white/[.02] p-6"><p className="font-semibold text-slate-200">No escalation awaiting review</p><p className="mt-2 text-sm leading-relaxed text-slate-400">Advance the mock clock to let the agent identify a slipping commitment and prepare a context-aware message for your approval.</p></section>}</div></div>
- <div className="mt-6"><CommitmentList commitments={state.commitments} onDraft={id => api("draft", id)} /></div><p className="mt-5 text-center text-xs text-slate-500">Human approval is required before delivery. Without a Slack webhook, sent messages are safely logged in demo mode.</p></div></main>;
+  const [state, setState] = useState<RadarState>();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const { appendMessage } = useCopilotChat();
+
+  useEffect(() => {
+    fetch("/api/radar")
+      .then((r) => r.json())
+      .then(setState)
+      .catch(() => setError("Could not load the radar."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useCopilotReadable(
+    {
+      description:
+        "The live Deadline Radar state: mock current time, and every tracked commitment with its owner, description, due date, riskScore (0-100, higher = more likely to slip), status (tracked/flagged/escalated/resolved), and escalation draft if one exists.",
+      value: state,
+    },
+    [state]
+  );
+
+  async function nudgeApproval(commitmentId: string, owner: string, draft: string) {
+    try {
+      await appendMessage(
+        new TextMessage({
+          role: Role.User,
+          content: `Commitment ${commitmentId} (owner: ${owner}) just crossed the risk threshold and has a drafted escalation message ready for review: "${draft}". Call approveEscalation for commitment ${commitmentId} now so I can review and approve or dismiss it.`,
+        })
+      );
+    } catch {
+      // Non-fatal: the draft still saved to the store; the user can ask the sidebar to review it manually.
+    }
+  }
+
+  async function handleDraft(commitmentId: string) {
+    setError("");
+    try {
+      const next = await callRadar({ action: "draft", id: commitmentId });
+      setState(next);
+      const c = next.commitments.find((x) => x.id === commitmentId);
+      if (c?.escalationDraft) void nudgeApproval(c.id, c.owner, c.escalationDraft);
+      return c ? `Draft ready for ${c.owner}: "${c.escalationDraft}"` : "Commitment not found.";
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+      throw e;
+    }
+  }
+
+  async function handleDismiss(commitmentId: string) {
+    setError("");
+    try {
+      const next = await callRadar({ action: "dismiss", id: commitmentId });
+      setState(next);
+      return "Dismissed — back to tracked.";
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+      throw e;
+    }
+  }
+
+  async function handleAdvance() {
+    setError("");
+    try {
+      setState(await callRadar({ action: "advance" }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    }
+  }
+
+  useCopilotAction(
+    {
+      name: "extractCommitments",
+      description:
+        "Re-check the commitment store for currently tracked commitments. Extraction from raw Slack/email messages is not implemented yet — this only re-confirms current state.",
+      parameters: [],
+      handler: async () => {
+        const next: RadarState = await fetch("/api/radar").then((r) => r.json());
+        setState(next);
+        return `The store currently holds ${next.commitments.length} commitments.`;
+      },
+    },
+    [state]
+  );
+
+  useCopilotAction(
+    {
+      name: "recomputeRisk",
+      description: "Recalculate the risk score for every tracked commitment against the current mock clock time.",
+      parameters: [],
+      handler: async () => {
+        const next = await callRadar({ action: "recompute" });
+        setState(next);
+        const top = [...next.commitments].sort((a, b) => b.riskScore - a.riskScore)[0];
+        return top ? `Recomputed. Highest risk right now: ${top.owner} — "${top.description}" at ${top.riskScore}.` : "Recomputed. No commitments tracked.";
+      },
+    },
+    [state]
+  );
+
+  useCopilotAction(
+    {
+      name: "draftEscalation",
+      description: "Draft an escalation message for a specific commitment and flag it for human approval.",
+      parameters: [{ name: "commitmentId", type: "string", description: "The id of the commitment to draft an escalation for.", required: true }],
+      handler: async ({ commitmentId }) => handleDraft(commitmentId),
+    },
+    [state]
+  );
+
+  useCopilotAction(
+    {
+      name: "dismissFlag",
+      description: "Dismiss a flagged commitment's escalation draft and return it to tracked status, without sending anything.",
+      parameters: [{ name: "commitmentId", type: "string", description: "The id of the commitment to dismiss.", required: true }],
+      handler: async ({ commitmentId }) => handleDismiss(commitmentId),
+    },
+    [state]
+  );
+
+  useCopilotAction(
+    {
+      name: "approveEscalation",
+      description:
+        "Show the drafted escalation message to the human for approval before sending. Only call this for a commitment that already has a draft (status flagged).",
+      parameters: [
+        { name: "commitmentId", type: "string", description: "The id of the commitment awaiting approval.", required: true },
+        { name: "editedText", type: "string", description: "Optional edited escalation text to show instead of the original draft.", required: false },
+      ],
+      renderAndWaitForResponse: ({ args, status, respond }) => {
+        const commitment = args.commitmentId ? state?.commitments.find((c) => c.id === args.commitmentId) : undefined;
+        if (!commitment) {
+          return <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-400">Preparing escalation review…</p>;
+        }
+        return (
+          <EscalationCard
+            commitment={commitment}
+            initialText={args.editedText || commitment.escalationDraft || ""}
+            disabled={status !== "executing"}
+            onApprove={async (text) => {
+              const next = await callRadar({ action: "approve", id: commitment.id, text });
+              setState(next);
+              respond?.({ approved: true, deliveredText: text });
+            }}
+            onDismiss={async () => {
+              await handleDismiss(commitment.id);
+              respond?.({ approved: false });
+            }}
+          />
+        );
+      },
+    },
+    [state]
+  );
+
+  if (loading) return <main className="grid min-h-screen place-items-center text-slate-300">Calibrating commitment radar…</main>;
+  if (!state) return <main className="grid min-h-screen place-items-center text-rose-300">{error}</main>;
+
+  return (
+    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#18244a,_#080b13_55%)] px-5 py-8 sm:px-8">
+      <div className="mx-auto max-w-6xl">
+        <header className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
+              Deadline Radar
+            </div>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+              Commitments don’t disappear.
+              <br />
+              <span className="text-slate-400">They surface before they slip.</span>
+            </h1>
+          </div>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <p className="text-xs text-slate-400">
+              Mock time · {new Date(state.now).toLocaleDateString("en-US", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </p>
+            <button onClick={handleAdvance} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-white/10 hover:bg-cyan-100">
+              Simulate 3 days passing →
+            </button>
+          </div>
+        </header>
+        {error && <p className="mb-4 rounded-lg bg-rose-400/10 p-3 text-sm text-rose-200">{error}</p>}
+        <RiskRadar commitments={state.commitments} />
+        <div className="mt-6">
+          <CommitmentList commitments={state.commitments} onDraft={handleDraft} />
+        </div>
+        <p className="mt-5 text-center text-xs text-slate-500">
+          Human approval is required before delivery. Flagged commitments are reviewed and approved from the chat sidebar. Without a Slack webhook, sent messages
+          are safely logged in demo mode.
+        </p>
+      </div>
+      <CopilotSidebar
+        labels={{ title: "Deadline Radar Agent", initial: "Ask me what's at risk, or approve an escalation that's ready for review." }}
+        instructions="You help the user track and act on work commitments extracted from Slack/email. Use the live commitment state you're given to answer grounded questions. Use recomputeRisk, draftEscalation, dismissFlag, and approveEscalation to act on commitments — always call approveEscalation to get human sign-off before anything is treated as sent."
+      />
+    </main>
+  );
 }
