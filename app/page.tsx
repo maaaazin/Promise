@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCopilotAction, useCopilotChat, useCopilotReadable } from "@copilotkit/react-core";
 import { CopilotSidebar } from "@copilotkit/react-ui";
 import { Role, TextMessage } from "@copilotkit/runtime-client-gql";
@@ -23,6 +23,12 @@ export default function Dashboard() {
   const [ingestSource, setIngestSource] = useState<"slack" | "email">("slack");
   const [ingestResult, setIngestResult] = useState("");
   const { appendMessage } = useCopilotChat();
+  // AG-UI requires a pending tool call's result before the thread can accept a new message —
+  // sending a second nudge while an earlier one's approveEscalation call is still unresolved
+  // throws "Tool result is missing for tool call ...". These track the single in-flight nudge
+  // and queue any others until it resolves (via approve or dismiss).
+  const pendingNudgeIdRef = useRef<string | null>(null);
+  const nudgeQueueRef = useRef<{ id: string; owner: string; draft: string }[]>([]);
 
   useEffect(() => {
     fetch("/api/radar")
@@ -41,7 +47,7 @@ export default function Dashboard() {
     [state]
   );
 
-  async function nudgeApproval(commitmentId: string, owner: string, draft: string) {
+  async function sendNudge(commitmentId: string, owner: string, draft: string) {
     try {
       await appendMessage(
         new TextMessage({
@@ -54,20 +60,44 @@ export default function Dashboard() {
     }
   }
 
-  // Auto-triggered flags (threshold crossed during advance/recompute, no manual draft click)
-  // reuse this same nudge — diffed against the state captured just before the call resolved.
+  // Sends the next queued nudge, but only if no nudge-triggered tool call is currently pending —
+  // otherwise the chat thread would get a second message before the first tool call has a result.
+  function sendNextQueuedNudge() {
+    if (pendingNudgeIdRef.current) return;
+    const next = nudgeQueueRef.current.shift();
+    if (!next) return;
+    pendingNudgeIdRef.current = next.id;
+    void sendNudge(next.id, next.owner, next.draft);
+  }
+
+  // Single entry point for every "nudge the sidebar to review this commitment" call (auto-flag
+  // and manual draft alike). Queues instead of sending immediately when a prior nudge's tool
+  // call hasn't been resolved yet, so at most one nudge-triggered approval is ever in flight.
+  function nudgeApproval(commitmentId: string, owner: string, draft: string) {
+    const alreadyQueuedOrPending = pendingNudgeIdRef.current === commitmentId || nudgeQueueRef.current.some((q) => q.id === commitmentId);
+    if (!alreadyQueuedOrPending) nudgeQueueRef.current.push({ id: commitmentId, owner, draft });
+    sendNextQueuedNudge();
+  }
+
+  // Called once a nudge-triggered (or manually drafted) commitment leaves "flagged" — approved
+  // or dismissed — so the next queued nudge, if any, can be sent.
+  function resolveNudge(commitmentId: string) {
+    if (pendingNudgeIdRef.current === commitmentId) {
+      pendingNudgeIdRef.current = null;
+      sendNextQueuedNudge();
+    }
+  }
+
+  // Auto-triggered flags (threshold crossed during advance/recompute, no manual draft click) —
+  // diffed against the state captured just before the call resolved. Queues every newly-flagged
+  // commitment, riskiest first; nudgeApproval/sendNextQueuedNudge take care of not overlapping.
   function nudgeAutoFlagged(prev: RadarState | undefined, next: RadarState) {
-    const newlyFlagged = next.commitments.filter(c => {
+    const newlyFlagged = next.commitments.filter((c) => {
       if (c.status !== "flagged" || !c.escalationDraft) return false;
       const before = prev?.commitments.find((x) => x.id === c.id);
       return before?.status !== "flagged";
     });
-
-    if (newlyFlagged.length === 0) return;
-
-    // Only nudge the riskiest one to avoid overwhelming the Copilot chat with multiple simultaneous approvals
-    const top = newlyFlagged.sort((a, b) => b.riskScore - a.riskScore)[0];
-    void nudgeApproval(top.id, top.owner, top.escalationDraft!);
+    for (const c of newlyFlagged.sort((a, b) => b.riskScore - a.riskScore)) nudgeApproval(c.id, c.owner, c.escalationDraft!);
   }
 
   async function handleDraft(commitmentId: string) {
@@ -89,6 +119,7 @@ export default function Dashboard() {
     try {
       const next = await callRadar({ action: "dismiss", id: commitmentId });
       setState(next);
+      resolveNudge(commitmentId);
       return "Dismissed — back to tracked.";
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -229,6 +260,7 @@ export default function Dashboard() {
             onApprove={async (text) => {
               const next = await callRadar({ action: "approve", id: commitment.id, text });
               setState(next);
+              resolveNudge(commitment.id);
               respond?.({ approved: true, deliveredText: text });
             }}
             onDismiss={async () => {
