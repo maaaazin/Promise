@@ -1,5 +1,6 @@
 import { scoreRisk } from "./scoring";
 import { extractCommitments, SeedMessage } from "./extraction";
+import { buildEscalationDraft } from "./drafts";
 import { Commitment, RadarState } from "./types";
 import seedSlack from "@/data/seed-slack.json";
 import seedEmail from "@/data/seed-email.json";
@@ -72,10 +73,29 @@ function getState(): Promise<RadarState> {
 
 export async function snapshot(): Promise<RadarState> { return structuredClone(await getState()); }
 
+const FLAG_THRESHOLD = 70;
+
 export async function recompute(): Promise<RadarState> {
   const s = await getState();
   const now = new Date(s.now);
-  s.commitments.forEach((c) => (c.riskScore = scoreRisk(c, now)));
+
+  // Only commitments still "tracked" that cross the flag threshold in this call auto-draft —
+  // already-flagged/escalated/resolved commitments are left alone, and a recompute with no
+  // crossing makes zero LLM calls.
+  const newlyCrossed: Commitment[] = [];
+  s.commitments.forEach((c) => {
+    const previousScore = c.riskScore;
+    c.riskScore = scoreRisk(c, now);
+    if (c.status === "tracked" && previousScore < FLAG_THRESHOLD && c.riskScore >= FLAG_THRESHOLD) {
+      newlyCrossed.push(c);
+    }
+  });
+
+  for (const c of newlyCrossed) {
+    c.escalationDraft = await buildEscalationDraft(c);
+    c.status = "flagged";
+  }
+
   return snapshot();
 }
 
