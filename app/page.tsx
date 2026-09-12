@@ -54,12 +54,17 @@ export default function Dashboard() {
   // Auto-triggered flags (threshold crossed during advance/recompute, no manual draft click)
   // reuse this same nudge — diffed against the state captured just before the call resolved.
   function nudgeAutoFlagged(prev: RadarState | undefined, next: RadarState) {
-    for (const c of next.commitments) {
-      if (c.status !== "flagged" || !c.escalationDraft) continue;
+    const newlyFlagged = next.commitments.filter(c => {
+      if (c.status !== "flagged" || !c.escalationDraft) return false;
       const before = prev?.commitments.find((x) => x.id === c.id);
-      if (before?.status === "flagged") continue;
-      void nudgeApproval(c.id, c.owner, c.escalationDraft);
-    }
+      return before?.status !== "flagged";
+    });
+    
+    if (newlyFlagged.length === 0) return;
+    
+    // Only nudge the riskiest one to avoid overwhelming the Copilot chat with multiple simultaneous approvals
+    const top = newlyFlagged.sort((a, b) => b.riskScore - a.riskScore)[0];
+    void nudgeApproval(top.id, top.owner, top.escalationDraft!);
   }
 
   async function handleDraft(commitmentId: string) {
