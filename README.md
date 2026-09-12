@@ -98,16 +98,6 @@ Open [http://localhost:3000](http://localhost:3000). (The CopilotKit provider cu
 6. Ask the sidebar something like *"what's my riskiest commitment right now?"* and get an answer grounded in the live state.
 7. Optionally, try the **Manually ingest a message** form on the dashboard (or ask the sidebar to ingest a message you paste in) and watch a brand-new commitment appear.
 
-## Known limitations
-
-Be honest with yourself running this: it's a hackathon build, not production software.
-
-- **State is in-memory only.** The whole commitment list resets on server restart — and Next.js's dev server can silently recompile and reset it mid-session after an idle gap between routes. Do a demo or review as one continuous session; don't leave long pauses between actions.
-- **A known ordering bug in the approval queue.** When two commitments flag at the same time, approving the *first* queued escalation card can throw a server-side `MissingToolResultsError` before the second card's nudge is sent, because the code releases the next queued nudge slightly before the approval's own result is confirmed back to CopilotKit. It's understood and logged (see [FAILURES.md](./FAILURES.md)'s 14:41 entry) but not yet fixed.
-- **The CopilotKit runtime URL is hardcoded** to `http://localhost:3000/api/copilotkit` in `app/layout.tsx`. Running on a different port will break the sidebar.
-- **No request validation or auth** on `/api/radar` — it's a local demo endpoint, not a hardened API.
-- **Exa enrichment isn't built**, despite being part of the original plan.
-
 ## Project docs
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — locked decisions, non-negotiables, what to cut if time runs short
