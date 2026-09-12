@@ -42,7 +42,7 @@ export default function Dashboard() {
     {
       description:
         "The live Deadline Radar state: mock current time, and every tracked commitment with its owner, description, due date, riskScore (0-100, higher = more likely to slip), status (tracked/flagged/escalated/resolved), and escalation draft if one exists.",
-      value: state,
+      value: state || "Loading...",
     },
     [state]
   );
@@ -278,12 +278,12 @@ export default function Dashboard() {
   if (!state) return <main className="grid min-h-screen place-items-center text-rose-300">{error}</main>;
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#18244a,_#080b13_55%)] px-5 py-8 sm:px-8">
+    <main className="min-h-screen px-5 py-8 sm:px-8">
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.2em] text-cyan-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[#3DD6C4]" />
               Deadline Radar
             </div>
             <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
@@ -292,12 +292,12 @@ export default function Dashboard() {
               <span className="text-slate-400">They surface before they slip.</span>
             </h1>
           </div>
-          <div className="flex flex-col items-start gap-2 sm:items-end">
-            <p className="text-xs text-slate-400">
-              Mock time · {new Date(state.now).toLocaleDateString("en-US", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          <div className="flex flex-col items-start gap-3 sm:items-end">
+            <p className="font-mono text-xs text-slate-400">
+              Mock time · {new Date(state.now).toLocaleDateString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
             </p>
-            <button onClick={handleAdvance} className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-white/10 hover:bg-cyan-100">
-              Simulate 3 days passing →
+            <button onClick={handleAdvance} className="rounded-md border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-white/10">
+              Simulate 3 days passing
             </button>
           </div>
         </header>

@@ -1,7 +1,60 @@
 "use client";
 import { Commitment } from "@/lib/types";
 import { riskLabel } from "@/lib/scoring";
-const tint = (score: number) => score >= 70 ? "text-rose-300 bg-rose-400/10" : score >= 45 ? "text-amber-200 bg-amber-300/10" : "text-emerald-200 bg-emerald-300/10";
+
+const color = (score: number) => score >= 70 ? "#ff5874" : score >= 45 ? "#ffb54a" : score >= 25 ? "#63c7ff" : "#6ee7b7";
+
 export function CommitmentList({ commitments, onDraft }: { commitments: Commitment[]; onDraft: (id: string) => Promise<unknown> }) {
- return <section className="rounded-3xl border border-white/10 bg-[#101624] p-6"><div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[.18em] text-cyan-300">Intelligence queue</p><h2 className="mt-1 text-xl font-semibold">Tracked commitments</h2></div><div className="space-y-2">{commitments.map(c => <div key={c.id} className="flex flex-col gap-3 rounded-xl border border-white/5 bg-white/[.025] p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-xs uppercase text-slate-500">{c.sourceType}</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tint(c.riskScore)}`}>{riskLabel(c.riskScore)} · {c.riskScore}</span></div><p className="mt-1 truncate text-sm font-semibold">{c.description}</p><p className="mt-1 text-xs text-slate-400">Owner: {c.owner} · due {new Date(c.dueDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</p></div><div className="flex gap-2">{c.status === "flagged" ? <span className="self-center text-xs text-rose-200">Awaiting review</span> : c.status === "escalated" ? <span className="self-center text-xs text-cyan-200">Sent</span> : <button onClick={() => onDraft(c.id)} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-300/10">Draft escalation</button>}</div></div>)}</div></section>;
+  return (
+    <section className="rounded-md border border-white/10 bg-transparent">
+      <div className="border-b border-white/10 p-4 sm:px-5">
+        <h2 className="text-base font-semibold text-slate-200">Tracked commitments</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm text-slate-300">
+          <thead className="border-b border-white/5 bg-white/[0.02] text-xs font-medium text-slate-500">
+            <tr>
+              <th className="px-5 py-2.5">Source</th>
+              <th className="px-5 py-2.5 w-full">Commitment</th>
+              <th className="px-5 py-2.5">Owner</th>
+              <th className="px-5 py-2.5">Due Date</th>
+              <th className="px-5 py-2.5">Risk</th>
+              <th className="px-5 py-2.5 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {commitments.map(c => (
+              <tr key={c.id} className="transition-colors hover:bg-white/[0.02]">
+                <td className="whitespace-nowrap px-5 py-3 text-xs uppercase text-slate-500">{c.sourceType}</td>
+                <td className="px-5 py-3 text-sm font-medium">
+                  <div className="line-clamp-1">{c.description}</div>
+                </td>
+                <td className="whitespace-nowrap px-5 py-3 text-slate-400">{c.owner}</td>
+                <td className="whitespace-nowrap px-5 py-3 font-mono text-slate-400">
+                  {new Date(c.dueDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "2-digit" })}
+                </td>
+                <td className="whitespace-nowrap px-5 py-3">
+                  <span className="font-mono font-medium" style={{ color: color(c.riskScore) }}>
+                    {c.riskScore.toString().padStart(2, '0')}
+                  </span>
+                  <span className="ml-2 text-xs text-slate-500">{riskLabel(c.riskScore)}</span>
+                </td>
+                <td className="whitespace-nowrap px-5 py-3 text-right">
+                  {c.status === "flagged" ? (
+                    <span className="text-xs text-rose-300">Awaiting review</span>
+                  ) : c.status === "escalated" ? (
+                    <span className="text-xs text-cyan-300">Sent</span>
+                  ) : (
+                    <button onClick={() => onDraft(c.id)} className="text-xs font-medium text-slate-300 hover:text-white underline decoration-white/20 underline-offset-4 hover:decoration-white/60 transition-colors">
+                      Draft escalation
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
