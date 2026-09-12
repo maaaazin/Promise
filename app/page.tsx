@@ -90,12 +90,12 @@ export default function Dashboard() {
     {
       name: "extractCommitments",
       description:
-        "Re-check the commitment store for currently tracked commitments. Extraction from raw Slack/email messages is not implemented yet — this only re-confirms current state.",
+        "Re-run extraction over the seed Slack and email messages and refresh the commitment store with the results. Falls back to the last known commitments if extraction fails (e.g. no API key).",
       parameters: [],
       handler: async () => {
-        const next: RadarState = await fetch("/api/radar").then((r) => r.json());
+        const next = await callRadar({ action: "extract" });
         setState(next);
-        return `The store currently holds ${next.commitments.length} commitments.`;
+        return `Extraction complete — the store now holds ${next.commitments.length} commitment(s).`;
       },
     },
     [state]

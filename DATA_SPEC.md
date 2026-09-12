@@ -2,7 +2,7 @@
 
 Reference doc for Claude Code. This is the canonical shape for all data in the system — don't invent alternate field names in individual files.
 
-⚠️ Seed data shape below is PROPOSED, not confirmed — check the investigation results against the teammate's actual seed-slack.json / seed-email.json first. If they already exist in a different shape, update this file to match reality rather than rewriting their data.
+✅ Seed data shape below is CONFIRMED — `/data/seed-slack.json` and `/data/seed-email.json` each hold a top-level JSON array of the per-message shape shown below (the shape itself is unchanged from the original proposal).
 
 ## Commitment (canonical)
 ```ts
@@ -42,6 +42,17 @@ escalated --[optional, if time allows]--> resolved
 { owner: string; description: string; dueDate: string; confidence: number; sourceExcerpt: string }
 ```
 Non-commitment messages return nothing — discard, don't force a low-confidence extraction.
+
+Implemented in `lib/extraction.ts` as a single batched call over all seed messages (not one call per
+message) using `openai`'s `beta.chat.completions.parse` with a Zod-defined JSON schema — each message
+carries its own `id` and `timestamp` in the prompt so the model resolves relative date phrasing ("by
+Friday", "end of next week") against that message's own timestamp, not the current real date, and so
+results can be traced back to their source message via `sourceMessageId`.
+
+**Confidence floor: 0.6** — anything scored below this is discarded before it ever reaches the store,
+per the "don't force a low-confidence extraction" rule above. A commitment with a real promise but no
+confidently resolvable date is still returned by the model, but instructed to score ≤ 0.4, so it's
+filtered out by this floor rather than landing with a guessed date.
 
 ## Risk scoring — proposed formula
 Avoids an extra LLM call per commitment by using a light keyword heuristic instead of a second model pass for urgency.

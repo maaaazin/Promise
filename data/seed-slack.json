@@ -1,0 +1,44 @@
+[
+  {
+    "channel": "#eng-launch",
+    "author": "maya",
+    "timestamp": "2026-09-08T14:03:00Z",
+    "text": "I'll get the final launch email and the analytics links to you by Tuesday the 15th — just need the naming pass to land first."
+  },
+  {
+    "channel": "#eng-launch",
+    "author": "sam",
+    "timestamp": "2026-09-08T09:15:00Z",
+    "text": "don't worry, I'll have the API done by Friday"
+  },
+  {
+    "channel": "#partnerships",
+    "author": "priya",
+    "timestamp": "2026-08-26T11:30:00Z",
+    "text": "I can turn around the partner deck by end of next week, promise."
+  },
+  {
+    "channel": "#mobile",
+    "author": "priya",
+    "timestamp": "2026-09-11T12:15:00Z",
+    "text": "I'll finish the regression sweep before we ship next Wednesday and post results here."
+  },
+  {
+    "channel": "#eng-launch",
+    "author": "jordan",
+    "timestamp": "2026-09-08T14:10:00Z",
+    "text": "did the staging deploy finish yet? seeing 502s on the checkout flow"
+  },
+  {
+    "channel": "#general",
+    "author": "sam",
+    "timestamp": "2026-09-09T08:02:00Z",
+    "text": "lol nice, congrats on the launch prep 🎉"
+  },
+  {
+    "channel": "#mobile",
+    "author": "jordan",
+    "timestamp": "2026-09-11T12:20:00Z",
+    "text": "sounds good, thanks for the update"
+  }
+]

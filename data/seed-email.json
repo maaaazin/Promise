@@ -1,0 +1,42 @@
+[
+  {
+    "threadId": "t-pricing",
+    "from": "jordan.ellis@co.com",
+    "to": "priya@co.com",
+    "subject": "Re: Acme pricing",
+    "timestamp": "2026-09-10T09:30:00Z",
+    "body": "I can send Acme the revised pricing page by Friday once legal confirms the regional terms."
+  },
+  {
+    "threadId": "t-brief",
+    "from": "alex.morgan@co.com",
+    "to": "priya@co.com",
+    "subject": "Customer research brief",
+    "timestamp": "2026-09-11T16:45:00Z",
+    "body": "I'll share the customer research brief by the end of next week."
+  },
+  {
+    "threadId": "t-vendor",
+    "from": "sam.oduya@co.com",
+    "to": "maya@co.com",
+    "subject": "Vendor contract redline",
+    "timestamp": "2026-08-21T10:00:00Z",
+    "body": "I'll get to the vendor contract redline before we ship — it's not urgent yet but I haven't forgotten."
+  },
+  {
+    "threadId": "t-eng-launch",
+    "from": "priya@co.com",
+    "to": "maya@co.com",
+    "subject": "Re: launch timeline",
+    "timestamp": "2026-09-09T08:20:00Z",
+    "body": "Heads up, QA found two more edge cases on checkout. Nothing blocking yet."
+  },
+  {
+    "threadId": "t-vendor",
+    "from": "maya@co.com",
+    "to": "sam.oduya@co.com",
+    "subject": "Re: Vendor contract redline",
+    "timestamp": "2026-08-21T10:20:00Z",
+    "body": "No rush — do we even still need the vendor for the Q4 renewal, or did we drop them?"
+  }
+]
